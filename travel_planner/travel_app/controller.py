@@ -117,7 +117,15 @@ class TravelApp:
     
     def get_trip(self, identifier):
         return self.get_generic(identifier, models.Trip)
-    
+
+    def get_activity(self, identifier): 
+        if not self.current_user:
+            raise TravelAppException("You must be logged in and in a trip to get activities. Please login.")
+        if not self.current_trip:
+            raise TravelAppException("You must be in a trip to get activities. Please goto a trip.")
+
+        return models.TripActivity.objects.get(id = identifier)
+   
     def get_generics(self, model_class):
         if not self.current_user:
             raise TravelAppException("You must be logged in to get objects. Please login.")
@@ -169,7 +177,55 @@ class TravelApp:
         
         print "You have successfully added activity " + str(db_trip_activity) + " to trip " + str(self.current_trip)
         
+    def tag_activity(self, activity_id, tagname_or_id, force = False):
+        tag = None
+        activity = -1
+        
+        try:
+            tag = self.get_tag(tagname_or_id)
+        except models.Tag.DoesNotExist:
+            if force:
+                pass
+            else:
+                raise TravelAppException("the given tag does not exist. To create a tag, use the force option.")
 
+        try:
+            activity_id = int(activity_id)
+        except Exception:
+            raise TravelAppException("the activity identifier must be an integer")
+
+        try:
+            activity = self.get_activity(activity_id)
+        except models.TripActivity.DoesNotExist:
+            raise TravelAppException("the given activity does not exist.")
+        
+        if activity > -1 and tag is not None:
+            activity.tags.add(tag)
+            activity.save()
+        
+    def untag_activity(self, activity_id, tagname_or_id):
+        tag = None
+        activity = -1
+        
+        try:
+            tag = self.get_tag(tagname_or_id)
+        except models.Tag.DoesNotExist:
+            raise TravelAppException("the given tag does not exist. To create a tag, use the force option.")
+
+        try:
+            activity_id = int(activity_id)
+        except Exception:
+            raise TravelAppException("the activity identifier must be an integer")
+
+        try:
+            activity = self.get_activity(activity_id)
+        except models.TripActivity.DoesNotExist:
+            raise TravelAppException("the given activity does not exist.")
+        
+        if activity > -1 and tag is not None:
+            activity.tags.remove(tag)
+            activity.save()
+            
 class TravelAppCmdLine(cmd.Cmd):
     tag_regex = re.compile("^-[a-zA-Z]$")
     travel_app = TravelApp()
@@ -214,10 +270,20 @@ class TravelAppCmdLine(cmd.Cmd):
     def list_activities(self, line):
         try:
             activities = self.travel_app.get_activities()
-            print "[id] activity name"
+            print "[id] activity name (tags)"
             print "-------------------"
             for activity in activities:
-                print "[" + str(activity.id) + "] " + activity.name
+                print_str ="[" + str(activity.id) + "] " + activity.name
+                
+                if len(activity.tags.all()) > 0:
+                    print_str += " ("
+                    for tag in activity.tags.all():
+                        print_str += tag.name + ", "
+                    print_str = print_str[:-2]
+                    print_str += ")"
+                
+                print print_str 
+                
         except TravelAppException as e:
             print str(e)
             
@@ -483,7 +549,122 @@ class TravelAppCmdLine(cmd.Cmd):
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
         
+    def do_tag(self, line):
+        """ -f: force """
+        error_string = "Usage error: tag -a <activity id> -t <tagname or id> [-f]"
+        
+        line_split = line.split(" ")
+        if len(line_split) < 4:
+            print error_string
+        else:
+            activity_id = -1
+            tagname_or_id = ""
+            force = False
+            
+            while(len(line_split) > 0):
+                index = self.find_next_tag(line_split[1:])
+                if index:
+                    index += 1
+                if len(line_split) > 1:
+                    if line_split[0] == '-a':
+                        if index is not None and index != 2:
+                            print "Usage error: an activity id must exist and cannot contain spaces."
+                            return
+                        try:
+                            activity_id = int(line_split[1])
+                        except:
+                            print "Usage error: an activity id must be an integer"
+                            return
+                    elif line_split[0] == '-t':
+                        if index and index == 1:
+                            # don't have a tag entry
+                            print "don't have tag entry"
+                            print error_string
+                            return
     
+                        if index is not None:
+                            print "index not none"
+                            tagname_or_id = " ".join(line_split[1:index])
+                        else:                    
+                            print "index is none"
+                            tagname_or_id = " ".join(line_split[1:])
+                    elif line_split[0] == '-f':
+                        if index and index != 1:
+                            print "Usage error: force tag takes no arguments"
+                            return
+                        force = True
+                    else:
+                        print "unknown tag: " + line_split[0]
+                        print error_string
+                        return
+                    
+                    if index:
+                        line_split = line_split[index:]
+                    else:
+                        line_split = []
+                
+            if activity_id >= 0 and len(tagname_or_id) > 0:
+                try:
+                    self.travel_app.tag_activity(activity_id, tagname_or_id, force)
+                except TravelAppException as e:
+                    print str(e) 
+            else:
+                print "activity id: " + str(activity_id) + " tag: " + tagname_or_id
+                print error_string
+                return
+       
+    def do_untag(self, line):
+        error_string = "Usage error: untag -a <activity id> -t <tagname or id>"
+        
+        line_split = line.split(" ")
+        if len(line_split) < 4:
+            print error_string
+        else:
+            activity_id = -1
+            tagname_or_id = ""
+            force = False
+            
+            while(len(line_split) > 0):
+                index = self.find_next_tag(line_split[1:])
+                if index:
+                    index += 1
+                if len(line_split) > 1:
+                    if line_split[0] == '-a':
+                        if index is not None and index != 2:
+                            print "Usage error: an activity id must exist and cannot contain spaces."
+                            return
+                        try:
+                            activity_id = int(line_split[1])
+                        except:
+                            print "Usage error: an activity id must be an integer"
+                            return
+                    elif line_split[0] == '-t':
+                        if index and index == 1:
+                            # don't have a tag entry
+                            print error_string
+                            return
+    
+                        if index:
+                            tagname_or_id = " ".join(line_split[1:index])
+                        else:                    
+                            tagname_or_id = " ".join(line_split[1:])
+                    else:
+                        print error_string
+                        return
+                    
+                    if index:
+                        line_split = line_split[index:]
+                    else:
+                        line_split = []
+                
+            if activity_id >= 0 and len(tagname_or_id) > 0:
+                try:
+                    self.travel_app.untag_activity(activity_id, tagname_or_id)
+                except TravelAppException as e:
+                    print str(e) 
+            else:
+                print error_string
+        
     def do_greet(self, line):
         print "hello"
         
