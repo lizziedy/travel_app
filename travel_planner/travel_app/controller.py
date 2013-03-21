@@ -14,6 +14,20 @@ class TravelApp:
     
     letter_regex = re.compile("^[a-zA-Z]")
     
+    @staticmethod
+    def check_tag_name(tagname):
+        if "(" in tagname or ")" in tagname:
+            raise TravelAppException("( and ) are not legal characters in a tag name")
+        if "," in tagname:
+            raise TravelAppException(", is not a legal character in a tag name")
+        
+        tagname_split = tagname.split(" ")
+        for partial in tagname_split:
+            if partial == "AND":
+                raise TravelAppException("AND cannot be a component of a tag name (use 'and' instead)")
+            if partial == "OR":
+                raise TravelAppException("OR cannot be a component of a tag name (use 'or' instead)")
+    
     def search(self, category_filter = None,
                      location = None,
                      term = None,
@@ -72,6 +86,7 @@ class TravelApp:
             raise TravelAppException("A user already exists with that username. Please try another.")
         
     def create_tag(self, name):
+        TravelApp.check_tag_name(name)
         self.create_generic(name, models.Tag)        
          
     def create_trip(self, name):
@@ -226,6 +241,57 @@ class TravelApp:
             activity.tags.remove(tag)
             activity.save()
             
+    def filter(self, tags = None, tags_operator = "AND"):
+        activities = self.get_activities()
+        
+        final_list = []
+        
+        if tags is not None:
+            split_tags = tags.split(",")
+            tmp_tags = []
+            for tag in split_tags:
+                self.check_tag_name(tag)
+                tag = tag.strip()
+                tmp_tags.append(tag)
+                
+            split_tags = tmp_tags
+            
+            for activity in activities:
+                if tags_operator == "AND":
+                    fits = True
+                elif tags_operator == "OR":
+                    fits = False
+                else:
+                    raise TravelAppException("The only allowed tag operators are AND and OR")
+                
+                for tag in split_tags:
+                    try:
+                        tag = self.get_tag(tag)
+                    except models.Tag.DoesNotExist:
+                        print "The tag " + str(tag) + " does not exist."
+                        return
+                    
+                    tagged = tag in activity.tags.all()
+                    
+                    if tags_operator == "AND":
+                        fits = fits and tagged
+                        if not fits:
+                            break
+                    elif tags_operator == "OR":
+                        fits = fits or tagged
+                        if fits:
+                            break
+                        
+                if fits:
+                    final_list.append(activity)
+        else:
+            final_list = activities
+                    
+            
+        return final_list
+            
+        
+            
 class TravelAppCmdLine(cmd.Cmd):
     tag_regex = re.compile("^-[a-zA-Z]$")
     travel_app = TravelApp()
@@ -238,10 +304,28 @@ class TravelAppCmdLine(cmd.Cmd):
             
         return None
     
-    def list_businesses(self, businesses):
+    def print_businesses(self, businesses):
         for i in range(len(businesses)):
-            print "[" + str(i) + "] " + self.travel_app.pretty_string_business(businesses[i])      
-        
+            print "[" + str(i) + "] " + self.travel_app.pretty_string_business(businesses[i])
+            
+    def print_activities(self, activities):
+        if activities is None:
+            print "No activities"
+        else:      
+            print "[id] activity name (tags)"
+            print "-------------------"
+            for activity in activities:
+                print_str ="[" + str(activity.id) + "] " + activity.name
+                
+                if len(activity.tags.all()) > 0:
+                    print_str += " ("
+                    for tag in activity.tags.all():
+                        print_str += tag.name + ", "
+                    print_str = print_str[:-2]
+                    print_str += ")"
+                
+                print print_str 
+      
     def list_tags(self, line):
         try:
             tags = self.travel_app.get_tags()
@@ -270,20 +354,7 @@ class TravelAppCmdLine(cmd.Cmd):
     def list_activities(self, line):
         try:
             activities = self.travel_app.get_activities()
-            print "[id] activity name (tags)"
-            print "-------------------"
-            for activity in activities:
-                print_str ="[" + str(activity.id) + "] " + activity.name
-                
-                if len(activity.tags.all()) > 0:
-                    print_str += " ("
-                    for tag in activity.tags.all():
-                        print_str += tag.name + ", "
-                    print_str = print_str[:-2]
-                    print_str += ")"
-                
-                print print_str 
-                
+            self.print_activities(activities)
         except TravelAppException as e:
             print str(e)
             
@@ -318,7 +389,6 @@ class TravelAppCmdLine(cmd.Cmd):
                 index = self.find_next_tag(line_split[1:])
                 if index:
                     index += 1
-                print "index: " + str(index)
                 if len(line_split) > 1:
                     if line_split[0] == '-u':
                         if index and index > 2:
@@ -454,7 +524,6 @@ class TravelAppCmdLine(cmd.Cmd):
         
         while(len(line_split) > 0):
             index = self.find_next_tag(line_split[1:])
-            print "index: " + str(index)
             if index:
                 index += 1
             else:
@@ -462,11 +531,9 @@ class TravelAppCmdLine(cmd.Cmd):
             if line_split[0] == "-c":
                 category_filter = " ".join(line_split[1:index])
             elif line_split[0] == "-l":
-                print "in location"
                 location = " ".join(line_split[1:index])
                 print location
             elif line_split[0] == "-t":
-                print "in term"
                 term = " ".join(line_split[1:index])
                 print term
             elif line_split[0] == "-i":
@@ -493,7 +560,7 @@ class TravelAppCmdLine(cmd.Cmd):
             line_split=line_split[index:]
             
         businesses = self.travel_app.search(category_filter, location, term, limit, offset, sort, radius_filter, deals_filter, cc, lang, bounds, ll, cll)
-        self.list_businesses(businesses)
+        self.print_businesses(businesses)
                     
     def do_create(self, line):
         line_split = line.split(" ")
@@ -583,18 +650,14 @@ class TravelAppCmdLine(cmd.Cmd):
                             return
     
                         if index is not None:
-                            print "index not none"
                             tagname_or_id = " ".join(line_split[1:index])
                         else:                    
-                            print "index is none"
                             tagname_or_id = " ".join(line_split[1:])
                     elif line_split[0] == '-f':
                         if index and index != 1:
-                            print "Usage error: force tag takes no arguments"
                             return
                         force = True
                     else:
-                        print "unknown tag: " + line_split[0]
                         print error_string
                         return
                     
@@ -609,7 +672,6 @@ class TravelAppCmdLine(cmd.Cmd):
                 except TravelAppException as e:
                     print str(e) 
             else:
-                print "activity id: " + str(activity_id) + " tag: " + tagname_or_id
                 print error_string
                 return
        
@@ -622,7 +684,6 @@ class TravelAppCmdLine(cmd.Cmd):
         else:
             activity_id = -1
             tagname_or_id = ""
-            force = False
             
             while(len(line_split) > 0):
                 index = self.find_next_tag(line_split[1:])
@@ -664,6 +725,42 @@ class TravelAppCmdLine(cmd.Cmd):
                     print str(e) 
             else:
                 print error_string
+        
+    def do_filter(self, line):
+        # TODO: consider adding -g for geographic filtering with a radius
+        # TODO: consider adding -d for day filtering
+        line_split = line.split(" ")
+        if len(line_split) < 1 or len(line_split[0]) == 0:
+            print "Error: must include at least one argument"
+            
+        tags = None
+        
+        while(len(line_split) > 0):
+            index = self.find_next_tag(line_split[1:])
+            if index:
+                index += 1
+            else:
+                index = len(line_split)
+            if line_split[0] == "-t":
+                tag_operator = "AND"
+                if line_split[1] == "AND" or line_split[1] == "OR":
+                    tag_operator = line_split[1]
+                    tags = " ".join(line_split[2:index])
+                else:
+                    tags = " ".join(line_split[1:index])
+            else:
+                print "Error: that command does not exist. Type 'help' for a listing of commands."
+                return
+            
+            line_split=line_split[index:]
+            
+        activities = None
+        try:
+            activities = self.travel_app.filter(tags, tag_operator)
+            self.print_activities(activities)
+        except TravelAppException as e:
+            print str(e)
+            return
         
     def do_greet(self, line):
         print "hello"
