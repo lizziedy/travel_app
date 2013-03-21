@@ -120,10 +120,13 @@ class TravelApp:
             raise TravelAppException("You must be logged in to add a tag. Please login.")
         
         item = None
-        if self.letter_regex.match(identifier):
-            item = model_class.objects.get(name=identifier, user=self.current_user)
-        else:
-            item = model_class.objects.get(id=int(identifier))
+        try:
+            if self.letter_regex.match(identifier):
+                item = model_class.objects.get(name=identifier, user=self.current_user)
+            else:
+                item = model_class.objects.get(id=int(identifier))
+        except model_class.DoesNotExist:
+            raise TravelAppException("The item " + str(identifier) + " does not exist")
             
         return item
     
