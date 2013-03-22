@@ -90,8 +90,36 @@ class TravelApp:
         TravelApp.check_tag_name(name)
         self.create_generic(name, models.Tag)        
          
-    def create_trip(self, name):
-        self.create_generic(name, models.Trip)  
+    def create_trip(self, name, start_date=None, duration=None):
+        trip = self.create_generic(name, models.Trip)
+        
+        if start_date is not None:
+            try:
+                date_split = start_date.split("-")
+                year = int(date_split[0])
+                month = int(date_split[1])
+                day = int(date_split[2])
+            except:
+                raise TravelAppException("The start date was not formatted correctly (yyyy-mm-dd)")
+            
+            try:
+                date = datetime.date(year, month, day)
+            except Exception as e:
+                raise TravelAppException(str(e))
+            
+            trip.start_date = date
+            
+        if duration is not None:
+            try:
+                duration = int(duration)
+            except:
+                raise TravelAppException("The duration of the trip must be an integer value.")
+            
+            trip.duration = duration
+            
+        trip.save()
+        
+        print "You have successfully saved the trip " + str(trip)
         
     def create_generic(self, name, model_class): 
         if not self.current_user:
@@ -107,7 +135,45 @@ class TravelApp:
         
         item = model_class(name=name, user=self.current_user)
         item.save()
-        print "You have successfully saved \"" + str(item) + "\""
+        
+        return item
+
+    def edit_trip(self, name, start_date=None, duration=None, new_name=None):
+        trip = self.get_trip(name)
+        
+        if start_date is not None:
+            print "in date"
+            try:
+                date_split = start_date.split("-")
+                year = int(date_split[0])
+                month = int(date_split[1])
+                day = int(date_split[2])
+            except:
+                raise TravelAppException("The start date was not formatted correctly (yyyy-mm-dd)")
+            
+            try:
+                date = datetime.date(year, month, day)
+            except Exception as e:
+                raise TravelAppException(str(e))
+            
+            trip.start_date = date
+            
+        if duration is not None:
+            print "in duration"
+            try:
+                duration = int(duration)
+            except:
+                raise TravelAppException("The duration of the trip must be an integer value.")
+            
+            trip.duration = duration
+            
+        if new_name is not None:
+            print "in name"
+            trip.name = new_name
+            
+        trip.save()
+        
+        print "You have successfully saved the trip " + str(trip)
 
     def goto(self, trip):
         trip = self.get_trip(trip)
@@ -528,8 +594,87 @@ class TravelAppCmdLine(cmd.Cmd):
             print str(e)
             
     def create_trip(self, line):
+        error_string = "Usage error: create trip <name> [-d <start_date (yyyy-mm-dd)> -l <length>]"
+        line_split = line.split(" ")
+        
+        if len(line_split) < 1:
+            print error_string
+            return
+        
+        index = self.find_next_tag(line_split)
+        if index == 0:
+            print error_string
+            return
+        
+        start_date = None
+        length = None
+        
+        name = line_split[0]
+        line_split = line_split[1:]
+        
+        while(len(line_split) > 0):
+            index = self.find_next_tag(line_split[1:])
+            if index:
+                index += 1
+            else:
+                index = len(line_split)
+                
+            if line_split[0] == "-d":
+                start_date = line_split[1]
+            if line_split[0] == "-l":
+                length = line_split[1]
+                
+            line_split = line_split[index:]
+
         try:
-            self.travel_app.create_trip(line)
+            self.travel_app.create_trip(name=name, start_date=start_date, duration=length)
+        except TravelAppException as e:
+            print str(e)
+        
+    def edit_trip(self, line):
+        error_string = "Usage error: edit trip name [-n <new name> -d <start_date (yyyy-mm-dd)> -l <length>]"
+        line_split = line.split(" ")
+        
+        if len(line_split) < 1:
+            print error_string
+            return
+        
+        index = self.find_next_tag(line_split)
+        if index == 0:
+            print error_string
+            return
+        
+        start_date = None
+        length = None
+        new_name = None
+        
+        name = line_split[0]
+        line_split = line_split[1:]
+        
+        while(len(line_split) > 0):
+            index = self.find_next_tag(line_split[1:])
+            if index is not None:
+                index += 1
+            else:
+                index = len(line_split)
+                
+            if line_split[0] == "-d":
+                print "in date"
+                start_date = line_split[1]
+            if line_split[0] == "-l":
+                print "in length"
+                length = line_split[1]
+            if line_split[0] == "-n":
+                print "in name"
+                new_name = line_split[1]
+                
+            print index
+            print line_split
+            line_split = line_split[index:]
+            print line_split
+
+        try:
+            self.travel_app.edit_trip(name=name, start_date=start_date, duration=length, new_name=new_name)
         except TravelAppException as e:
             print str(e)
         
@@ -678,7 +823,6 @@ class TravelAppCmdLine(cmd.Cmd):
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
 
-    """            
     def do_edit(self, line):
         line_split = line.split(" ")
         if len(line_split) < 1 or len(line_split[0]) == 0:
@@ -686,15 +830,10 @@ class TravelAppCmdLine(cmd.Cmd):
         
         line = " ".join(line_split[1:])
         first_item = line_split[0]
-        if first_item == "user":
-            self.create_user(line)
-        elif first_item == "tag":
-            self.create_tag(line)
-        elif first_item == "trip":
-            self.create_trip(line)
+        if first_item == "trip":
+            self.edit_trip(line)
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
-    """
             
     def do_goto(self, line):
         if len(line) > 0:
@@ -718,7 +857,7 @@ class TravelAppCmdLine(cmd.Cmd):
         if current_user:
             print "You are currently logged in as " + current_user.username
             if current_trip:
-                print "You are currently exploring " + current_trip.name
+                print "You are currently exploring " + str(current_trip)
         else:
             print "You are not logged in"
     

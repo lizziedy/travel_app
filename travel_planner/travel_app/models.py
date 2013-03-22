@@ -306,6 +306,14 @@ class Trip(DbObject):
                 day = self.day_set.all()[day_num]
                 day.date = self.start_date + datetime.timedelta(days=day_num)
                 day.save()
+                
+    def __unicode__(self):
+        print_str = self.name
+        if self.start_date is not None:
+            print_str += " (" + str(self.start_date) + " - " + str(self.start_date + datetime.timedelta(days=self.duration)) + ")"
+        else:
+            print_str += " for " + str(self.duration) + " days"
+        return print_str 
 
 
 class Day(models.Model):
