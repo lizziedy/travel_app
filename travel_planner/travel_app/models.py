@@ -1,4 +1,5 @@
 from django.db import models
+import datetime
 
 # Create your models here.
 
@@ -285,14 +286,44 @@ class Activity(DbObject):
 
 class Trip(DbObject):
     start_date = models.DateField(blank=True, null=True)
-    end_date = models.DateField(blank=True, null=True)
     duration = models.IntegerField(default=7)
     user = models.ForeignKey(User)
+    
+    def save(self, *args, **kwargs):
+        super(Trip, self).save(*args, **kwargs)
+
+        current_num_days = len(self.day_set.all())
+        if self.duration < current_num_days:
+            for _ in range(self.duration, current_num_days):
+                self.day_set.all()[len(self.day_set.all())-1].delete()
+        elif self.duration > current_num_days:
+            for day_num in range(current_num_days, self.duration):
+                day = Day(order=day_num + 1, trip=self)
+                day.save()
+        
+        if self.start_date is not None:
+            for day_num in range(self.duration): 
+                day = self.day_set.all()[day_num]
+                day.date = self.start_date + datetime.timedelta(days=day_num)
+                day.save()
+
+
+class Day(models.Model):
+    date = models.DateField(blank=True, null=True)
+    order = models.IntegerField()
+    trip = models.ForeignKey(Trip)
+
+class TimeInterval(models.Model):
+    start_time = models.TimeField(blank=True, null=True, default=None)
+    end_time = models.TimeField(blank=True, null=True, default=None)
+    activity = models.ForeignKey('TripActivity')
+    day = models.ForeignKey(Day)
 
 class TripActivity(DbObject):
     activity = models.ForeignKey(Activity)
     trip = models.ForeignKey(Trip)
     tags = models.ManyToManyField(Tag, blank=True)
+    priority = models.IntegerField(default = 20)
     
     @staticmethod
     def get_or_create(activity, trip):
@@ -305,4 +336,7 @@ class TripActivity(DbObject):
             trip_activity.save()
             
         return trip_activity
-
+    
+    def __unicode__(self):
+        return "[" + str(self.id) + "] " + self.name
+        

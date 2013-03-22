@@ -3,6 +3,7 @@ import cmd
 import django.db
 import re
 import requester
+import datetime
 
 class TravelAppException(Exception):
     """ An exception for a travel app """
@@ -142,7 +143,31 @@ class TravelApp:
         if not self.current_trip:
             raise TravelAppException("You must be in a trip to get activities. Please goto a trip.")
 
-        return models.TripActivity.objects.get(id = identifier)
+        try:
+            db_activity = models.TripActivity.objects.get(id = identifier, trip=self.current_trip) 
+        except models.TripActivity.DoesNotExist:
+            raise TravelAppException("The activity with id " + str(identifier) + " does not exist in trip " + self.current_trip)
+        
+        return db_activity
+   
+    def get_day(self, day):
+        if not self.current_user:
+            raise TravelAppException("You must be logged in and in a trip to get a day. Please login.")
+        if not self.current_trip:
+            raise TravelAppException("You must be in a trip to get a day. Please goto a trip.")
+        
+        try:
+            order = int(day)
+        except Exception as e:
+            print str(e)
+            raise TravelAppException("You must enter the day number of your trip, not the date itself.")
+   
+        try:
+            db_day = models.Day.objects.get(order=order, trip=self.current_trip)
+        except models.Day.DoesNotExist:
+            raise TravelAppException("The day with order " + str(order) + " does not exist in trip " + self.current_trip)
+        
+        return db_day
    
     def get_generics(self, model_class):
         if not self.current_user:
@@ -163,6 +188,14 @@ class TravelApp:
             raise TravelAppException("You must be in a trip to get activities. Please goto a trip.")
 
         return models.TripActivity.objects.filter(trip = self.current_trip)
+    
+    def get_days(self):
+        if not self.current_user:
+            raise TravelAppException("You must be logged in and in a trip to get days. Please login.")
+        if not self.current_trip:
+            raise TravelAppException("You must be in a trip to get days. Please goto a trip.")
+
+        return models.Day.objects.filter(trip = self.current_trip)
     
     def delete_generic(self, identifier, model_class):
         item = self.get_generic(identifier, model_class)
@@ -293,7 +326,39 @@ class TravelApp:
             
         return final_list
             
+    def plan(self, activity_id, day, time_interval=None):
+        if not self.current_user:
+            raise TravelAppException("You must be logged in and in a trip to get an activity. Please login.")
+        if not self.current_trip:
+            raise TravelAppException("You must be in a trip to plan an activity. Please goto a trip.")
+
+        start_time = None
+        end_time = None
+        if time_interval is not None:
+            start = time_interval[0]
+            end = time_interval[1]
+            
+            while len(start) < 4:
+                start = "0" + start
+            while len(end) < 4:
+                end = "0" + end
+                
+            try:
+                start_time = datetime.time(int(start[0:2]), int(start[2:]))
+                end_time = datetime.time(int(end[0:2]), int(end[2:]))
+            except:
+                raise TravelAppException("Either the start or end time was improperly formatted. For best result, format like hhmm")
+
+        activity = self.get_activity(activity_id)
+        day = self.get_day(day)
         
+        db_time_interval = models.TimeInterval(activity = activity, day = day, start_time=start_time, end_time=end_time)
+        db_time_interval.save()
+
+        print_str = "successfully planned " + str(activity) + " for day " + str(day)
+        if start_time is not None and end_time is not None:
+            print_str += " from " + str(start_time) + " to " + str(end_time) 
+        print print_str 
             
 class TravelAppCmdLine(cmd.Cmd):
     tag_regex = re.compile("^-[a-zA-Z]$")
@@ -329,6 +394,26 @@ class TravelAppCmdLine(cmd.Cmd):
                 
                 print print_str 
       
+    def print_day(self, day):
+        print_str = "[" + str(day.order) + "]"
+        if day.date is not None:
+            print_str += " " + str(day.date)
+        print print_str
+        
+        all_days = day.timeinterval_set.filter(start_time=None)
+        part_days = day.timeinterval_set.exclude(start_time=None)
+        
+        if len(all_days) > 0:
+            print "  [[ all day events ]]"
+            for all_day in all_days:
+                print "    " + str(all_day.activity)
+                
+        if len(part_days) > 0:
+            print "  [[ partial day events ]]"
+            for part_day in part_days:
+                print ("    " + str(part_day.activity) + " (" + str(part_day.start_time) + "-" +
+                       str(part_day.end_time) + ") ")
+      
     def list_tags(self, line):
         try:
             tags = self.travel_app.get_tags()
@@ -358,6 +443,16 @@ class TravelAppCmdLine(cmd.Cmd):
         try:
             activities = self.travel_app.get_activities()
             self.print_activities(activities)
+        except TravelAppException as e:
+            print str(e)
+            
+    def list_days(self, line):
+        try:
+            days = self.travel_app.get_days()
+            print "[day number] date"
+            print "-----------------"
+            for day in days:
+                self.print_day(day)
         except TravelAppException as e:
             print str(e)
             
@@ -485,6 +580,8 @@ class TravelAppCmdLine(cmd.Cmd):
             self.list_search(line)
         elif first_item == "activities":
             self.list_activities(line)
+        elif first_item == "days":
+            self.list_days(line)
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
     
@@ -580,6 +677,24 @@ class TravelAppCmdLine(cmd.Cmd):
             self.create_trip(line)
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
+
+    """            
+    def do_edit(self, line):
+        line_split = line.split(" ")
+        if len(line_split) < 1 or len(line_split[0]) == 0:
+            print "Error: must include at least one argument"
+        
+        line = " ".join(line_split[1:])
+        first_item = line_split[0]
+        if first_item == "user":
+            self.create_user(line)
+        elif first_item == "tag":
+            self.create_tag(line)
+        elif first_item == "trip":
+            self.create_trip(line)
+        else:
+            print "Error: that command does not exist. Type 'help' for a listing of commands."
+    """
             
     def do_goto(self, line):
         if len(line) > 0:
@@ -736,8 +851,6 @@ class TravelAppCmdLine(cmd.Cmd):
         if len(line_split) < 1 or len(line_split[0]) == 0:
             print "Error: must include at least one argument"
             
-        tags = None
-        
         while(len(line_split) > 0):
             index = self.find_next_tag(line_split[1:])
             if index:
@@ -757,7 +870,6 @@ class TravelAppCmdLine(cmd.Cmd):
             
             line_split=line_split[index:]
             
-        activities = None
         try:
             activities = self.travel_app.filter(tags, tag_operator)
             self.print_activities(activities)
@@ -765,6 +877,66 @@ class TravelAppCmdLine(cmd.Cmd):
             print str(e)
             return
         
+    def do_plan(self, line):
+        error_string = "Usage error: plan -a <activity id> -d <day> [-t <time interval ('1600 2000' for 4pm to 8pm)>]"
+        
+        line_split = line.split(" ")
+        if len(line_split) < 1 or len(line_split[0]) == 0:
+            print "Error: must include at least one argument"
+            
+        time_interval_start = None
+        time_interval_end = None
+        
+        while(len(line_split) > 0):
+            index = self.find_next_tag(line_split[1:])
+            if index:
+                index += 1
+            else:
+                index = len(line_split)
+                
+            if line_split[0] == "-a":
+                if index is not None and index != 2:
+                    print "Usage error: an activity id must exist and cannot contain spaces."
+                    print error_string
+                    return
+                try:
+                    activity_id = int(line_split[1])
+                except:
+                    print "Usage error: an activity id must be an integer"
+                    return
+            elif line_split[0] == "-d":
+                if index is not None and index != 2:
+                    print "Usage error: a day must exist and cannot contain spaces."
+                    print error_string
+                    return
+                day = line_split[1]
+            elif line_split[0] == "-t":
+                if index is not None and index != 3:
+                    print error_string
+                    return
+                time_interval_start = line_split[1]
+                time_interval_end = line_split[2]
+            else:
+                print "Error: that command does not exist. Type 'help' for a listing of commands."
+                return
+
+            if index:
+                line_split = line_split[index:]
+            else:
+                line_split = []
+                
+        if activity_id is not None and day is not None:
+            time_interval = None
+            if time_interval_start is not None and time_interval_end is not None:
+                time_interval = (time_interval_start, time_interval_end)
+            try:
+                self.travel_app.plan(activity_id, day, time_interval)
+            except TravelAppException as e:
+                print str(e)
+        else:
+            print error_string
+            return
+   
     def do_greet(self, line):
         print "hello"
         
