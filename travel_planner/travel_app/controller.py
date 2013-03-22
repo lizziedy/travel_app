@@ -286,6 +286,14 @@ class TravelApp:
             raise TravelAppException("You must be logged in and in a trip to add an activity. Please login.")
         if not self.current_trip:
             raise TravelAppException("You must be in a trip to add an activity. Please goto a trip.")
+        if self.current_businesses is None or len(self.current_businesses) == 0:
+            raise TravelAppException("Try another search. There are no activities in the cache.")
+        try:
+            index = int(index)
+        except:
+            raise TravelAppException("The index must be an integer value")
+        if index >= len(self.current_businesses):
+            raise TravelAppException("The index you have used is out of range")
         activity = self.current_businesses[index]
         db_yelp_activity = models.YelpActivity.get_or_create(activity)
         db_activity = models.Activity.get_or_create(yelp_activity = db_yelp_activity)
@@ -343,7 +351,7 @@ class TravelApp:
             activity.tags.remove(tag)
             activity.save()
             
-    def filter(self, tags = None, tags_operator = "AND"):
+    def filter(self, tags = None, tags_operator = "AND", days = None):
         activities = self.get_activities()
         
         final_list = []
@@ -388,7 +396,29 @@ class TravelApp:
                     final_list.append(activity)
         else:
             final_list = activities
-                    
+        
+        if days is not None:
+            split_days = days.split(",")
+            tmp_days = []
+            for day in split_days:
+                day.strip()
+                try:
+                    day = int(day)
+                except:
+                    raise TravelAppException("Day must be an integer (eg: 2 would be the second day)")
+                tmp_days.append(day)
+            split_days = tmp_days
+            
+            new_list = []
+            
+            for activity in final_list:
+                time_intervals = activity.timeinterval_set.all()
+                for time_interval in time_intervals:
+                    if time_interval.day.order in split_days:
+                        new_list.append(activity)
+                        break
+
+            final_list = new_list
             
         return final_list
             
@@ -503,7 +533,7 @@ class TravelAppCmdLine(cmd.Cmd):
     def list_search(self, line):
         businesses = self.travel_app.current_businesses
         if businesses:
-            self.list_businesses(businesses)
+            self.print_businesses(businesses)
             
     def list_activities(self, line):
         try:
@@ -990,6 +1020,10 @@ class TravelAppCmdLine(cmd.Cmd):
         if len(line_split) < 1 or len(line_split[0]) == 0:
             print "Error: must include at least one argument"
             
+        days = None
+        tags = None
+        tag_operator = None
+        
         while(len(line_split) > 0):
             index = self.find_next_tag(line_split[1:])
             if index:
@@ -1003,6 +1037,9 @@ class TravelAppCmdLine(cmd.Cmd):
                     tags = " ".join(line_split[2:index])
                 else:
                     tags = " ".join(line_split[1:index])
+            elif line_split[0] == "-d":
+                days = " ".join(line_split[1:index])
+                
             else:
                 print "Error: that command does not exist. Type 'help' for a listing of commands."
                 return
@@ -1010,7 +1047,7 @@ class TravelAppCmdLine(cmd.Cmd):
             line_split=line_split[index:]
             
         try:
-            activities = self.travel_app.filter(tags, tag_operator)
+            activities = self.travel_app.filter(tags, tag_operator, days)
             self.print_activities(activities)
         except TravelAppException as e:
             print str(e)

@@ -150,12 +150,13 @@ class YelpLocation(models.Model):
         o.save()
 
         # adds categories to database
-        for neighborhood in yelp_location["neighborhoods"]:
-            db_neighborhood = YelpNeighborhood.get(neighborhood)
-            if not db_neighborhood:
-                db_neighborhood = YelpNeighborhood.create(neighborhood)
-            if db_neighborhood:
-                o.neighborhoods.add(db_neighborhood)
+        if "neighborhoods" in yelp_location:
+            for neighborhood in yelp_location["neighborhoods"]:
+                db_neighborhood = YelpNeighborhood.get(neighborhood)
+                if not db_neighborhood:
+                    db_neighborhood = YelpNeighborhood.create(neighborhood)
+                if db_neighborhood:
+                    o.neighborhoods.add(db_neighborhood)
 
         o.save()
         return o
@@ -191,8 +192,8 @@ class YelpActivity(DbObject):
     yelp_id = models.CharField(unique=True, max_length=128)
     rating = models.FloatField(default = 3)
     review_count = models.IntegerField(default = 0)
-    phone = models.CharField(max_length=32)
-    display_phone = models.CharField(max_length=32)
+    phone = models.CharField(max_length=32, blank=True)
+    display_phone = models.CharField(max_length=32, blank=True)
     snippet_text = models.TextField(max_length = 512)
     categories = models.ManyToManyField(YelpCategory)
     location = models.ForeignKey(YelpLocation)
@@ -207,10 +208,13 @@ class YelpActivity(DbObject):
         o.yelp_id = yelp_business["id"]
         o.rating = yelp_business["rating"]
         o.review_count = yelp_business["review_count"]
-        o.phone = yelp_business["phone"]
-        o.display_phone = yelp_business["display_phone"]
         o.snippet_text = yelp_business["snippet_text"]
-        
+
+        if "phone" in yelp_business:        
+            o.phone = yelp_business["phone"]
+        if "display_phone" in yelp_business:
+            o.display_phone = yelp_business["display_phone"]
+            
         #adds location to database
         db_location = YelpLocation.get(yelp_business["location"])
         print db_location
