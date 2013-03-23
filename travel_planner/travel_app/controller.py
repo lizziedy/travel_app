@@ -129,6 +129,30 @@ class TravelApp:
         
         print "You have successfully saved the trip " + str(trip)
         
+    def create_activity(self, name, country_code, public=False):
+        activity = models.Activity(name=name)
+
+        country_code = models.CountryCode.get_or_create(country_code)
+
+        location = models.Location()
+        location.save()
+        location.country_codes.add(country_code)
+        location.save()
+        activity.location = location
+        
+        activitysource = models.ActivitySource()
+        activitysource.yelp_id = None
+        if public:
+            activitysource.user = None
+        else:
+            if not self.current_user:
+                raise TravelAppException("You must be logged in to add this. Please login.")
+            activitysource.user = self.current_user
+        activitysource.save()
+        activity.activitysource = activitysource
+            
+        activity.save()
+        
     def create_generic(self, name, model_class): 
         if not self.current_user:
             raise TravelAppException("You must be logged in to add this. Please login.")
@@ -753,6 +777,47 @@ class TravelAppCmdLine(cmd.Cmd):
             self.travel_app.create_trip(name=name, start_date=start_date, duration=length)
         except TravelAppException as e:
             print str(e)
+
+    def create_activity(self, line):
+        error_string = "Usage error: create activity <name>"
+        line_split = line.split(" ")
+        
+        if len(line_split) < 1:
+            print error_string
+            return
+        
+        index = self.find_next_tag(line_split)
+        if index == 0:
+            print error_string
+            return
+        
+        public = False
+        country_code = None
+        name = " ".join(line_split[0:index])
+        line_split = line_split[index:]
+        
+        while(len(line_split) > 0):
+            index = self.find_next_tag(line_split[1:])
+            if index:
+                index += 1
+            else:
+                index = len(line_split)
+                
+            if line_split[0] == "-p":
+                public = True
+            elif line_split[0] == "-c":
+                country_code = line_split[1]
+            else:
+                print error_string
+                return
+                
+            line_split = line_split[index:]
+
+        try:
+            self.travel_app.create_activity(name=name, public=public, country_code=country_code)
+        except TravelAppException as e:
+            print str(e)
+
         
     def edit_trip(self, line):
         error_string = "Usage error: edit trip name [-n <new name> -d <start_date (yyyy-mm-dd)> -l <length>]"
@@ -801,6 +866,22 @@ class TravelAppCmdLine(cmd.Cmd):
         except TravelAppException as e:
             print str(e)
         
+    def edit_activity(self, line):
+        """
+        error_string = "Usage error: edit activity id [-n <new name> -d <start_date (yyyy-mm-dd)> -l <length>]"
+        line_split = line.split(" ")
+        
+        if len(line_split) < 1:
+            print error_string
+            return
+        
+        index = self.find_next_tag(line_split)
+        if index == 0:
+            print error_string
+            return
+        """
+        print "not yet implemented"
+           
     def add_activity(self, line):
         index = -1
         try:
@@ -948,6 +1029,8 @@ class TravelAppCmdLine(cmd.Cmd):
             self.create_tag(line)
         elif first_item == "trip":
             self.create_trip(line)
+        elif first_item == "activity":
+            self.create_activity(line)
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
 
@@ -960,6 +1043,8 @@ class TravelAppCmdLine(cmd.Cmd):
         first_item = line_split[0]
         if first_item == "trip":
             self.edit_trip(line)
+        if first_item == "activity":
+            self.edit_activity(line)
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
             
@@ -1139,7 +1224,6 @@ class TravelAppCmdLine(cmd.Cmd):
         except TravelAppException as e:
             print str(e)
             
-        
     def do_plan(self, line):
         error_string = "Usage error: plan -a <activity id> -d <day> [-t <time interval ('1600 2000' for 4pm to 8pm)>]"
         

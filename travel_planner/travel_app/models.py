@@ -157,7 +157,7 @@ class Location(models.Model):
     neighborhoods = models.ManyToManyField(Neighborhood, blank=True)
     postal_code = models.CharField(max_length=32, blank=True)
     address = models.CharField(max_length=512, blank=True)
-    coordinate = models.ForeignKey(Coordinate, blank=True)
+    coordinate = models.ForeignKey(Coordinate, blank=True, null=True)
 
     @staticmethod
     def yelp_create(yelp_location):
@@ -220,7 +220,7 @@ class Location(models.Model):
             location = Location.yelp_create(yelp_location)
             
         return location
-
+    
 class ActivitySource(models.Model):
     yelp_id = models.CharField(unique=True, null=True, default=None, max_length=128)
     user = models.ForeignKey("User", null=True, default=None)
