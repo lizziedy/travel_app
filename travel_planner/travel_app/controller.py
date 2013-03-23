@@ -6,6 +6,7 @@ import requester
 import datetime
 import sys
 from operator import attrgetter
+import copy
 
 class TravelAppException(Exception):
     """ An exception for a travel app """
@@ -169,7 +170,9 @@ class TravelApp:
             except:
                 raise TravelAppException("The duration of the trip must be an integer value.")
             
+            print trip.duration
             trip.duration = duration
+            print trip.duration
             
         if new_name is not None:
             print "in name"
@@ -292,8 +295,7 @@ class TravelApp:
         if index >= len(self.current_search):
             raise TravelAppException("The index you have used is out of range")
         activity = self.current_search[index]
-        db_yelp_activity = models.YelpActivity.get_or_create(activity)
-        db_activity = models.Activity.get_or_create(yelp_activity = db_yelp_activity)
+        db_activity = models.Activity.yelp_get_or_create(activity)
         db_trip_activity = models.TripActivity.get_or_create(activity=db_activity, 
                                                              trip=self.current_trip)
         
@@ -364,17 +366,23 @@ class TravelApp:
                     break
             if not found:
                 raise TravelAppException("The activity id " + str(activity_id) + " does not exist in the current list of activities.")
+        all_ordered_activities = copy.deepcopy(ordered_activities)
             
         # ensure we don't end up sorting unsorted activities accidentally
         sortable_activities = []
         for activity in all_activities:
+            print activity
             if activity.priority != sys.maxint or activity in self.current_activities:
+                print "\tadded"
                 sortable_activities.append(activity)
             
         # reorder the activities in the sortable activities
         for i in range(len(sortable_activities)):
             activity = sortable_activities[i]
-            if activity in self.current_activities:
+            if activity in all_ordered_activities:
+                print "len(sortable_activities): " + str(len(sortable_activities))
+                print "len(ordered_activities): " + str(len(ordered_activities))
+                print "i: " + str(i)
                 sortable_activities[i] = ordered_activities[0]
                 ordered_activities = ordered_activities[1:]
         
@@ -522,7 +530,7 @@ class TravelAppCmdLine(cmd.Cmd):
         if activities is None:
             print "No activities"
         else:      
-            print "[id] activity name (tags)"
+            print "(priority) [id] activity name (tags)"
             print "-------------------"
             for activity in activities:
                 print activity
@@ -1117,7 +1125,9 @@ class TravelAppCmdLine(cmd.Cmd):
             activity_ids.append(activity_id)
             
         try:
-            self.travel_app.order(activity_ids)
+            activities = self.travel_app.order(activity_ids)
+            print "ordered activities:"
+            self.print_activities(activities)
         except TravelAppException as e:
             print str(e)
             
@@ -1189,6 +1199,12 @@ class TravelAppCmdLine(cmd.Cmd):
         """ documentation """
         return True
 
-
+    def do_test1(self, line):
+        activities = models.Activity.objects.all()
+        activity = activities[6] 
+        print activity.yelp_id
+        activity.yelp_id = "something"
+        print activity.yelp_id
+        #activity.save()
 
 if  __name__ =='__main__':TravelAppCmdLine().cmdloop()
