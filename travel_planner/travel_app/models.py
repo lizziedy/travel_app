@@ -14,6 +14,15 @@ class DbObject(models.Model):
     created_on = models.DateTimeField(auto_now_add=True)
     name = models.CharField(max_length=200)
     
+    def __setattr__(self, name, value):
+        if self._can_edit(name, value):
+            super(DbObject, self).__setattr__(name, value)
+        else:
+            raise TravelAppDatabaseException("You cannot edit " + name)
+    
+    def _can_edit(self, name, value):
+        return True
+    
     class Meta:
         abstract = True
 
@@ -233,6 +242,34 @@ class Activity(DbObject):
     description = models.TextField(max_length = 1024, blank=True)
     categories = models.ManyToManyField(Category)
     location = models.ForeignKey(Location)
+    
+    yelp_dependencies = ["rating", "review_count", "phone", 
+                         "display_phone", "categories", "location"]
+    
+    def _can_edit(self, name, value):
+        """
+        can't edit if trying to edit activitysource and it already exists or
+        if you're trying to edit a yelp dependent value and the activity is
+        a yelp activity.
+        """
+        if name == "activitysource":
+            try:
+                getattr(self, name)
+            except:
+                return True
+            return False
+        elif name in self.yelp_dependencies:
+            try:
+                getattr(self, name)
+            except:
+                return True
+            try:
+                if self.activitysource.yelp_id is not None:
+                    return False
+            except:
+                return True
+
+        return True
     
     @staticmethod
     def yelp_create(yelp_business):
