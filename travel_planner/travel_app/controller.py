@@ -46,7 +46,10 @@ class TravelApp:
                      bounds = None,
                      ll = None,
                      cll = None):
-        result = requester.get_yelp_request(category_filter, location, term, limit, offset, sort, radius_filter, deals_filter, cc, lang, bounds, ll, cll)
+        try:
+            result = requester.get_yelp_request(category_filter, location, term, limit, offset, sort, radius_filter, deals_filter, cc, lang, bounds, ll, cll)
+        except Exception as e:
+            raise TravelAppException(str(e))
         self.current_search = result
         return result
     
@@ -924,7 +927,12 @@ class TravelAppCmdLine(cmd.Cmd):
 
             line_split=line_split[index:]
             
-        businesses = self.travel_app.search(category_filter, location, term, limit, offset, sort, radius_filter, deals_filter, cc, lang, bounds, ll, cll)
+        try:
+            businesses = self.travel_app.search(category_filter, location, term, limit, offset, sort, radius_filter, deals_filter, cc, lang, bounds, ll, cll)
+        except TravelAppException as e:
+            print str(e)
+            return
+            
         self.print_businesses(businesses)
                     
     def do_create(self, line):
