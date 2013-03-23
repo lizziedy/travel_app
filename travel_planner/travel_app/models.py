@@ -1,5 +1,6 @@
 from django.db import models
 import datetime
+import sys
 
 # Create your models here.
 
@@ -335,7 +336,8 @@ class TripActivity(DbObject):
     activity = models.ForeignKey(Activity)
     trip = models.ForeignKey(Trip)
     tags = models.ManyToManyField(Tag, blank=True)
-    priority = models.IntegerField(default = 20)
+    priority = models.IntegerField(default = sys.maxint)
+    #comments = models.TextField(max_length="1024")
     
     @staticmethod
     def get_or_create(activity, trip):
@@ -350,5 +352,23 @@ class TripActivity(DbObject):
         return trip_activity
     
     def __unicode__(self):
-        return "[" + str(self.id) + "] " + self.name
+        ret_str = ""
+        if self.priority != sys.maxint:
+            ret_str += "(" + str(self.priority) + ")"
+        ret_str += " [" + str(self.id) + "] " + self.name
+        if len(self.tags.all()) > 0:
+            ret_str += " ("
+            for tag in self.tags.all():
+                ret_str += tag.name + ", "
+            ret_str = ret_str[:-2]
+            ret_str += ")"
+        return ret_str
+    
+    class Meta:
+        ordering = ["priority", "name"]
+        
+        
+        
+        
+        
         

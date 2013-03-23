@@ -4,6 +4,8 @@ import django.db
 import re
 import requester
 import datetime
+import sys
+from operator import attrgetter
 
 class TravelAppException(Exception):
     """ An exception for a travel app """
@@ -11,7 +13,8 @@ class TravelAppException(Exception):
 class TravelApp:
     current_user = None
     current_trip = None
-    current_businesses = None
+    current_search = None
+    current_activities = None
     
     letter_regex = re.compile("^[a-zA-Z]")
     
@@ -43,7 +46,7 @@ class TravelApp:
                      ll = None,
                      cll = None):
         result = requester.get_yelp_request(category_filter, location, term, limit, offset, sort, radius_filter, deals_filter, cc, lang, bounds, ll, cll)
-        self.current_businesses = result
+        self.current_search = result
         return result
     
     def pretty_string_business(self, business):
@@ -73,7 +76,8 @@ class TravelApp:
         user = self.current_user
         self.current_user = None
         self.current_trip = None
-        self.current_businesses = None
+        self.current_search = None
+        self.current_activities = None
         
         print "You have successfully logged out from " + str(user)
     
@@ -181,6 +185,7 @@ class TravelApp:
         
     def leave(self):
         self.current_trip = None
+        self.current_activities = None
           
     def get_generic(self, identifier, model_class):
         if not self.current_user:
@@ -246,14 +251,6 @@ class TravelApp:
 
     def get_trips(self):
         return self.get_generics(models.Trip)
-
-    def get_activities(self):
-        if not self.current_user:
-            raise TravelAppException("You must be logged in and in a trip to get activities. Please login.")
-        if not self.current_trip:
-            raise TravelAppException("You must be in a trip to get activities. Please goto a trip.")
-
-        return models.TripActivity.objects.filter(trip = self.current_trip)
     
     def get_days(self):
         if not self.current_user:
@@ -286,15 +283,15 @@ class TravelApp:
             raise TravelAppException("You must be logged in and in a trip to add an activity. Please login.")
         if not self.current_trip:
             raise TravelAppException("You must be in a trip to add an activity. Please goto a trip.")
-        if self.current_businesses is None or len(self.current_businesses) == 0:
+        if self.current_search is None or len(self.current_search) == 0:
             raise TravelAppException("Try another search. There are no activities in the cache.")
         try:
             index = int(index)
         except:
             raise TravelAppException("The index must be an integer value")
-        if index >= len(self.current_businesses):
+        if index >= len(self.current_search):
             raise TravelAppException("The index you have used is out of range")
-        activity = self.current_businesses[index]
+        activity = self.current_search[index]
         db_yelp_activity = models.YelpActivity.get_or_create(activity)
         db_activity = models.Activity.get_or_create(yelp_activity = db_yelp_activity)
         db_trip_activity = models.TripActivity.get_or_create(activity=db_activity, 
@@ -350,10 +347,49 @@ class TravelApp:
         if activity > -1 and tag is not None:
             activity.tags.remove(tag)
             activity.save()
+    
+    def order(self, activity_ids):
+        if self.current_activities is None:
+            self.get_activities()
             
-    def filter(self, tags = None, tags_operator = "AND", days = None):
-        activities = self.get_activities()
+        all_activities = self._get_activities()
         
+        ordered_activities = []
+        for activity_id in activity_ids:
+            found = False
+            for activity in self.current_activities:
+                if activity.id == activity_id:
+                    found = True
+                    ordered_activities.append(activity)
+                    break
+            if not found:
+                raise TravelAppException("The activity id " + str(activity_id) + " does not exist in the current list of activities.")
+            
+        # ensure we don't end up sorting unsorted activities accidentally
+        sortable_activities = []
+        for activity in all_activities:
+            if activity.priority != sys.maxint or activity in self.current_activities:
+                sortable_activities.append(activity)
+            
+        # reorder the activities in the sortable activities
+        for i in range(len(sortable_activities)):
+            activity = sortable_activities[i]
+            if activity in self.current_activities:
+                sortable_activities[i] = ordered_activities[0]
+                ordered_activities = ordered_activities[1:]
+        
+        # go through sortable activities and reassign priorities
+        for i in range(len(sortable_activities)):
+            activity = sortable_activities[i]
+            activity.priority = i+1
+            activity.save()
+            
+        self.current_activities = sorted(self.current_activities, key=attrgetter('priority', 'name'))
+        return self.current_activities
+    
+    def get_activities(self, tags = None, tags_operator = "AND", days = None):
+        activities = self._get_activities()
+         
         final_list = []
         
         if tags is not None:
@@ -420,8 +456,18 @@ class TravelApp:
 
             final_list = new_list
             
+        self.current_activities = final_list
         return final_list
-            
+        
+    def _get_activities(self):
+        if not self.current_user:
+            raise TravelAppException("You must be logged in and in a trip to get activities. Please login.")
+        if not self.current_trip:
+            raise TravelAppException("You must be in a trip to get activities. Please goto a trip.")
+
+        return models.TripActivity.objects.filter(trip = self.current_trip)
+     
+        
     def plan(self, activity_id, day, time_interval=None):
         if not self.current_user:
             raise TravelAppException("You must be logged in and in a trip to get an activity. Please login.")
@@ -479,16 +525,7 @@ class TravelAppCmdLine(cmd.Cmd):
             print "[id] activity name (tags)"
             print "-------------------"
             for activity in activities:
-                print_str ="[" + str(activity.id) + "] " + activity.name
-                
-                if len(activity.tags.all()) > 0:
-                    print_str += " ("
-                    for tag in activity.tags.all():
-                        print_str += tag.name + ", "
-                    print_str = print_str[:-2]
-                    print_str += ")"
-                
-                print print_str 
+                print activity
       
     def print_day(self, day):
         print_str = "[" + str(day.order) + "]"
@@ -531,16 +568,61 @@ class TravelAppCmdLine(cmd.Cmd):
             print str(e)
             
     def list_search(self, line):
-        businesses = self.travel_app.current_businesses
+        businesses = self.travel_app.current_search
         if businesses:
             self.print_businesses(businesses)
             
     def list_activities(self, line):
+        line_split = line.split(" ")
+        days = None
+        tags = None
+        tag_operator = None
+        activities = None
+        
+        if len(line_split) == 1:
+            if len(line_split[0]) == 0:
+                line_split = []
+            elif line_split[0] == "-c":
+                activities = self.travel_app.current_activities
+                line_split = line_split[1:]
+        
+        if activities is None:
+            while(len(line_split) > 0):
+                index = self.find_next_tag(line_split[1:])
+                if index:
+                    index += 1
+                else:
+                    index = len(line_split)
+                if line_split[0] == "-t":
+                    tag_operator = "AND"
+                    if line_split[1] == "AND" or line_split[1] == "OR":
+                        tag_operator = line_split[1]
+                        tags = " ".join(line_split[2:index])
+                    else:
+                        tags = " ".join(line_split[1:index])
+                elif line_split[0] == "-d":
+                    days = " ".join(line_split[1:index])
+                    
+                else:
+                    print "Error: that command does not exist. Type 'help' for a listing of commands."
+                    return
+                
+                line_split=line_split[index:]
+                
+            try:
+                activities = self.travel_app.get_activities(tags, tag_operator, days)
+            except TravelAppException as e:
+                print str(e)
+                return
+            
+        self.print_activities(activities)
+        """
         try:
             activities = self.travel_app.get_activities()
             self.print_activities(activities)
         except TravelAppException as e:
             print str(e)
+        """
             
     def list_days(self, line):
         try:
@@ -892,6 +974,8 @@ class TravelAppCmdLine(cmd.Cmd):
             print "You are not logged in"
     
     def do_add(self, line):
+        self.add_activity(line)
+        """ only have one command for now, so going straight there 
         line_split = line.split(" ")
         if len(line_split) < 1 or len(line_split[0]) == 0:
             print "Error: must include at least one argument"
@@ -902,6 +986,7 @@ class TravelAppCmdLine(cmd.Cmd):
             self.add_activity(line)
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
+        """
         
     def do_tag(self, line):
         """ -f: force """
@@ -1012,46 +1097,30 @@ class TravelAppCmdLine(cmd.Cmd):
                     print str(e) 
             else:
                 print error_string
-        
-    def do_filter(self, line):
-        # TODO: consider adding -g for geographic filtering with a radius
-        # TODO: consider adding -d for day filtering
+                
+    def do_order(self, line):
         line_split = line.split(" ")
         if len(line_split) < 1 or len(line_split[0]) == 0:
             print "Error: must include at least one argument"
-            
-        days = None
-        tags = None
-        tag_operator = None
+            return
         
-        while(len(line_split) > 0):
-            index = self.find_next_tag(line_split[1:])
-            if index:
-                index += 1
-            else:
-                index = len(line_split)
-            if line_split[0] == "-t":
-                tag_operator = "AND"
-                if line_split[1] == "AND" or line_split[1] == "OR":
-                    tag_operator = line_split[1]
-                    tags = " ".join(line_split[2:index])
-                else:
-                    tags = " ".join(line_split[1:index])
-            elif line_split[0] == "-d":
-                days = " ".join(line_split[1:index])
-                
-            else:
-                print "Error: that command does not exist. Type 'help' for a listing of commands."
+        activity_ids = []
+        line_split = line.split(",")
+        for activity_id in line_split:
+            activity_id = activity_id.strip()
+            try:
+                activity_id = int(activity_id)
+            except:
+                print "The list of ids must all be integers"
                 return
             
-            line_split=line_split[index:]
+            activity_ids.append(activity_id)
             
         try:
-            activities = self.travel_app.filter(tags, tag_operator, days)
-            self.print_activities(activities)
+            self.travel_app.order(activity_ids)
         except TravelAppException as e:
             print str(e)
-            return
+            
         
     def do_plan(self, line):
         error_string = "Usage error: plan -a <activity id> -d <day> [-t <time interval ('1600 2000' for 4pm to 8pm)>]"
