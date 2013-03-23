@@ -290,6 +290,16 @@ class TravelApp:
 
         return models.Day.objects.filter(trip = self.current_trip)
     
+    def get_global_activities(self):
+        activities = models.Activity.objects.all()
+        ret_activities = []
+        
+        for activity in activities:
+            if activity.activitysource.user is None or activity.activitysource.user == self.current_user:
+                ret_activities.append(activity)
+            
+        return ret_activities
+    
     def delete_generic(self, identifier, model_class):
         item = self.get_generic(identifier, model_class)
             
@@ -606,7 +616,15 @@ class TravelAppCmdLine(cmd.Cmd):
         businesses = self.travel_app.current_search
         if businesses:
             self.print_businesses(businesses)
-            
+    
+    def list_global_activities(self, line):
+        try:
+            global_activities = self.travel_app.get_global_activities()
+            for activity in global_activities:
+                print activity
+        except TravelAppException as e:
+            print str(e)
+    
     def list_activities(self, line):
         line_split = line.split(" ")
         days = None
@@ -818,7 +836,6 @@ class TravelAppCmdLine(cmd.Cmd):
         except TravelAppException as e:
             print str(e)
 
-        
     def edit_trip(self, line):
         error_string = "Usage error: edit trip name [-n <new name> -d <start_date (yyyy-mm-dd)> -l <length>]"
         line_split = line.split(" ")
@@ -931,6 +948,8 @@ class TravelAppCmdLine(cmd.Cmd):
             self.list_activities(line)
         elif first_item == "days":
             self.list_days(line)
+        elif first_item == "global_activities":
+            self.list_global_activities(line)
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
     

@@ -246,6 +246,15 @@ class Activity(DbObject):
     yelp_dependencies = ["rating", "review_count", "phone", 
                          "display_phone", "categories", "location"]
     
+    def __unicode__(self):
+        ret_str = "[" + str(self.id) + "] " + self.name
+        if self.activitysource.yelp_id is not None:
+            ret_str += " (YELP)"
+        elif self.activitysource.user is not None:
+            ret_str += " (" + str(self.activitysource.user) + ")"
+
+        return ret_str
+    
     def _can_edit(self, name, value):
         """
         can't edit if trying to edit activitysource and it already exists or
