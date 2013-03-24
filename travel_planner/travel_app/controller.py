@@ -6,6 +6,7 @@ import requester
 import datetime
 import sys
 from operator import attrgetter
+from decimal import Decimal
 import copy
 
 class TravelAppException(Exception):
@@ -135,8 +136,7 @@ class TravelApp:
         country_code = models.CountryCode.get_or_create(country_code)
 
         location = models.Location()
-        location.save()
-        location.country_codes.add(country_code)
+        location.country_code = country_code
         location.save()
         activity.location = location
         
@@ -208,6 +208,123 @@ class TravelApp:
         trip.save()
         
         print "You have successfully saved the trip " + str(trip)
+
+    def edit_global_activity_location(self,
+                                      activity_id,
+                                      country_code = None,
+                                      state_code = None,
+                                      city = None,
+                                      display_address = None,
+                                      address = None,
+                                      neighborhoods = None,
+                                      postal_code = None,
+                                      coordinate = None):
+        try:
+            activity_id = int(activity_id)
+        except:
+            raise TravelAppException("The activity id must be an integer")
+        
+        activity = models.Activity.objects.get(id=activity_id)
+        
+        if activity.activitysource.user is not None and activity.activitysource.user != self.current_user:
+            raise TravelAppException("You do not have permission to edit this activity")
+
+        location = activity.location
+        
+        try:
+            if country_code is not None:
+                country_code = models.CountryCode.get_or_create(country_code)
+                location.country_code = country_code
+            if state_code is not None:
+                if country_code is None:
+                    country_code = location.country_code
+                state_code = models.StateCode.get_or_create(state_code, country_code)
+                location.state_code = state_code
+            if city is not None:
+                location.city = city
+            if address is not None:
+                location.address = address
+                if display_address is None:
+                    location.display_address = address
+            if display_address is not None:
+                if location.address is None:
+                    location.address = display_address
+                location.display_address = display_address
+            if neighborhoods is not None:
+                location.neighborhoods.clear()
+                for neighborhood in neighborhoods:
+                    neighborhood = models.Neighborhood.get_or_create(neighborhood)
+                    print neighborhood
+                    print neighborhood.name
+                    print neighborhood.id
+                    location.neighborhoods.add(neighborhood)
+            if postal_code is not None:
+                location.postal_code = postal_code
+            if coordinate is not None:
+                coord_err_str = "coordinate should be formatted as <latitude longitude>"
+                coordinate_split = coordinate.split(" ")
+                if len(coordinate_split) != 2:
+                    raise TravelAppException(coord_err_str)
+                try:
+                    latitude = Decimal(coordinate_split[0])
+                    longitude = Decimal(coordinate_split[1])
+                except:
+                    raise TravelAppException("latitude and longitude must both be floats") 
+
+                coordinate = models.Coordinate(latitude=latitude, longitude=longitude)
+                coordinate.save()
+                location.coordinate = coordinate
+                
+            location.save()
+        except models.TravelAppDatabaseException as e:
+            raise TravelAppException(str(e))
+
+    def edit_global_activity(self, activity_id, rating = None, 
+                             review_count = None, phone = None, 
+                             description = None, name=None):
+        try:
+            activity_id = int(activity_id)
+        except:
+            raise TravelAppException("The activity id must be an integer")
+        
+        activity = models.Activity.objects.get(id=activity_id)
+        
+        if activity.activitysource.user is not None and activity.activitysource.user != self.current_user:
+            raise TravelAppException("You do not have permission to edit this activity")
+
+        try:
+            if rating is not None:
+                try:
+                    rating = float(rating)
+                except:
+                    raise TravelAppException("The rating must be a float value")
+                activity.rating = rating
+                
+            if review_count is not None:
+                try:
+                    review_count = int(review_count)
+                except:
+                    raise TravelAppException("The review count must be an integer")
+                activity.review_count = review_count
+                
+            if phone is not None:
+                phone_split = phone.split(" ")
+                activity.phone = phone_split[0]
+                if len(phone_split) > 1:
+                    activity.display_phone = " ".join(phone_split[1:])
+                else:
+                    activity.display_phone = activity.phone
+            
+            if name is not None:
+                activity.name = name
+            
+            if description is not None:
+                activity.description = description
+        except models.TravelAppDatabaseException as e:
+            raise TravelAppException(str(e))
+            
+        activity.save()
+        
 
     def goto(self, trip):
         trip = self.get_trip(trip)
@@ -898,7 +1015,134 @@ class TravelAppCmdLine(cmd.Cmd):
             return
         """
         print "not yet implemented"
-           
+    def edit_global_activity_location(self, activity_id, line):
+        error_string = ("Usage error: edit global_activity <id> location "
+                        "[-o <latitude_coordinate longitude_coordinate>]")
+        line_split = line.split(" ")
+        
+        if len(line_split) < 1:
+            print error_string
+            return
+        
+        country_code = None
+        state_code = None
+        city = None
+        display_address = None
+        address = None
+        neighborhoods = None
+        postal_code = None
+        coordinate = None
+        
+        while(len(line_split) > 0):
+            index = self.find_next_tag(line_split[1:])
+            if index is not None:
+                index += 1
+            else:
+                index = len(line_split)
+            
+            if line_split[0] == "-c":
+                country_code = line_split[1]
+            elif line_split[0] == "-s":
+                state_code = line_split[1]
+            elif line_split[0] == "-y":
+                print "in city"
+                city = " ".join(line_split[1:index])
+            elif line_split[0] == "-d":
+                display_address = " ".join(line_split[1:index])
+            elif line_split[0] == "-a":
+                address = " ".join(line_split[1:index])
+            elif line_split[0] == "-n":
+                neighborhoods = " ".join(line_split[1:index]).split(",")
+                new_neighborhoods = []
+                    
+                for neighborhood in neighborhoods:
+                    new_neighborhoods.append(neighborhood.strip())
+                
+                neighborhoods = new_neighborhoods
+            elif line_split[0] == "-p":
+                postal_code = " ".join(line_split[1:index])
+            elif line_split[0] == "-o":
+                coordinate = " ".join(line_split[1:index])
+            else:
+                print "bad command: " + line_split[0]
+                print error_string
+                
+            line_split = line_split[index:]
+            
+        try:
+            self.travel_app.edit_global_activity_location(activity_id,
+                                                          country_code,
+                                                          state_code,
+                                                          city,
+                                                          display_address,
+                                                          address,
+                                                          neighborhoods,
+                                                          postal_code,
+                                                          coordinate)
+        except TravelAppException as e:
+            print str(e)
+        
+    def edit_global_activity(self, line):
+        error_string = ("Usage error: edit global_activity <id> "
+                        "[location <location info>] "
+                        "[categories <categories info>] "
+                        "[-r <rating>] [-c <review count>] [-d <description>] "
+                        "[-n <name>]")
+        line_split = line.split(" ")
+        
+        if len(line_split) < 1:
+            print error_string
+            return
+        
+        index = self.find_next_tag(line_split)
+        if index == 0:
+            print error_string
+            return
+        
+        activity_id = line_split[0]
+        line_split = line_split[1:]
+        
+        if line_split[0] == "location":
+            self.edit_global_activity_location(activity_id, " ".join(line_split[1:]))
+            return
+        if line_split[0] == "categories":
+            self.edit_global_activity_categories(activity_id, line_split[1:])
+            return
+        
+        rating = None
+        review_count = None
+        phone = None
+        description = None
+        name = None
+        
+        while(len(line_split) > 0):
+            index = self.find_next_tag(line_split[1:])
+            if index is not None:
+                index += 1
+            else:
+                index = len(line_split)
+                
+            if line_split[0] == "-r":  # rating
+                rating = line_split[1]
+            elif line_split[0] == "-c":  # review count
+                review_count = line_split[1]
+            elif line_split[0] == "-p":  # phone
+                phone = " ".join(line_split[1:index])
+            elif line_split[0] == "-d":  # description
+                description = " ".join(line_split[1:index])
+            elif line_split[0] == "-n": #name
+                name = " ".join(line_split[1:index])
+            else:
+                print error_string
+                
+            line_split = line_split[index:]
+            
+        try:
+            self.travel_app.edit_global_activity(activity_id, rating, review_count, phone, description, name)
+        except TravelAppException as e:
+            print str(e)
+
+    
     def add_activity(self, line):
         index = -1
         try:
@@ -1064,6 +1308,8 @@ class TravelAppCmdLine(cmd.Cmd):
             self.edit_trip(line)
         if first_item == "activity":
             self.edit_activity(line)
+        if first_item == "global_activity":
+            self.edit_global_activity(line)
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
             

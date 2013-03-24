@@ -9,14 +9,10 @@ class TravelAppDatabaseException(Exception):
 
 # Create your models here.
 
-class DbObject(models.Model):
-    updated_on = models.DateTimeField(auto_now=True)
-    created_on = models.DateTimeField(auto_now_add=True)
-    name = models.CharField(max_length=200)
-    
+class ImmutableObject(models.Model):
     def __setattr__(self, name, value):
         if self._can_edit(name, value):
-            super(DbObject, self).__setattr__(name, value)
+            super(ImmutableObject, self).__setattr__(name, value)
         else:
             raise TravelAppDatabaseException("You cannot edit " + name)
     
@@ -26,7 +22,15 @@ class DbObject(models.Model):
     class Meta:
         abstract = True
 
-class Coordinate(models.Model):
+class DbObject(ImmutableObject):
+    updated_on = models.DateTimeField(auto_now=True)
+    created_on = models.DateTimeField(auto_now_add=True)
+    name = models.CharField(max_length=200)
+    
+    class Meta:
+        abstract = True
+
+class Coordinate(ImmutableObject):
     latitude = models.DecimalField(max_digits=48, decimal_places = 32)
     longitude = models.DecimalField(max_digits=48, decimal_places = 32)
 
@@ -59,7 +63,7 @@ class Coordinate(models.Model):
             
         return coordinate
 
-class Category(models.Model):
+class Category(ImmutableObject):
     name = models.CharField(max_length=128)
     search_name = models.CharField(max_length=128)
     parent = models.ForeignKey('self', blank=True, null=True, default=None)
@@ -93,34 +97,39 @@ class Category(models.Model):
         return category
     
 
-class Neighborhood(models.Model):
+class Neighborhood(ImmutableObject):
     name = models.CharField(max_length=128)
 
     @staticmethod
-    def yelp_create(yelp_neighborhood):
-        if Neighborhood.yelp_get(yelp_neighborhood) is not None:
+    def create(yelp_neighborhood):
+        if Neighborhood.get(yelp_neighborhood) is not None:
             raise Exception("This neighborhood already exists in the database")
         
         o = Neighborhood()
         o.name = yelp_neighborhood
+        print "saving neighborhood"
         o.save()
+        print "saved neighborhood"
+        return o
         
     @staticmethod
-    def yelp_get(yelp_neighborhood):
+    def get(yelp_neighborhood):
         neighborhoods = Neighborhood.objects.filter(name = yelp_neighborhood)
         if len(neighborhoods) > 0:
             return neighborhoods[0] 
         return None 
 
     @staticmethod
-    def yelp_get_or_create(yelp_neighborhood):
-        neighborhood = Neighborhood.yelp_get(yelp_neighborhood)
-        if neighborhood is not None:
-            neighborhood = Neighborhood.yelp_create(yelp_neighborhood)
+    def get_or_create(yelp_neighborhood):
+        print "in neighborhood get_or_create"
+        neighborhood = Neighborhood.get(yelp_neighborhood)
+        print "neighborhood get returned: " + str(neighborhood)
+        if neighborhood is None:
+            neighborhood = Neighborhood.create(yelp_neighborhood)
             
         return neighborhood
 
-class CountryCode(models.Model):
+class CountryCode(ImmutableObject):
     code = models.CharField(max_length=8)
     
     @staticmethod
@@ -133,7 +142,7 @@ class CountryCode(models.Model):
         code.save()
         return code
 
-class StateCode(models.Model):
+class StateCode(ImmutableObject):
     code = models.CharField(max_length=8)
     country_code = models.ForeignKey(CountryCode)
     
@@ -149,9 +158,9 @@ class StateCode(models.Model):
         return code
          
 
-class Location(models.Model):
-    country_codes = models.ManyToManyField(CountryCode)
-    state_codes = models.ManyToManyField(StateCode, blank=True)
+class Location(ImmutableObject):
+    country_code = models.ForeignKey(CountryCode)
+    state_code = models.ForeignKey(StateCode, blank=True, null=True)
     city = models.CharField(max_length=128, blank=True)
     display_address = models.CharField(max_length=512, blank=True)
     neighborhoods = models.ManyToManyField(Neighborhood, blank=True)
@@ -173,17 +182,17 @@ class Location(models.Model):
         db_coordinate = Coordinate.yelp_get_or_create(yelp_location["coordinate"])
         o.coordinate = db_coordinate
         
-        o.save()
-
         country_code = CountryCode.get_or_create(yelp_location["country_code"])
-        o.country_codes.add(country_code)
+        o.country_code = country_code
         if "state_code" in yelp_location:
-            o.state_codes.add(StateCode.get_or_create(yelp_location["state_code"], country_code))
+            o.statecode = StateCode.get_or_create(yelp_location["state_code"], country_code)
+
+        o.save()
 
         # adds categories to database
         if "neighborhoods" in yelp_location:
             for neighborhood in yelp_location["neighborhoods"]:
-                db_neighborhood = Neighborhood.yelp_get_or_create(neighborhood)
+                db_neighborhood = Neighborhood.get_or_create(neighborhood)
                 if db_neighborhood is not None:
                     o.neighborhoods.add(db_neighborhood)
 
@@ -194,19 +203,20 @@ class Location(models.Model):
     def yelp_get(yelp_location):
         country_code = None
         state_code = None
+        coordinate = None
         try:
             country_code = CountryCode.objects.get(yelp_location["country_code"])
             state_code = StateCode.objects.get(yelp_location["state_code"])
+            coordinate = Coordinate.yelp_get(yelp_location["coordinate"])
         except:
             pass
-        coordinate = Coordinate.yelp_get(yelp_location["coordinate"])
         
         locations = Location.objects.filter(city = yelp_location["city"],
                                            display_address = yelp_location["display_address"],
                                            postal_code = yelp_location["postal_code"],
                                            address = yelp_location["address"],
-                                           country_codes__in=[country_code],
-                                           state_codes__in=[state_code],
+                                           country_code = country_code,
+                                           state_code =state_code,
                                            coordinate=coordinate
                                            )
         if len(locations) > 0:
@@ -221,7 +231,7 @@ class Location(models.Model):
             
         return location
     
-class ActivitySource(models.Model):
+class ActivitySource(ImmutableObject):
     yelp_id = models.CharField(unique=True, null=True, default=None, max_length=128)
     user = models.ForeignKey("User", null=True, default=None)
     
@@ -244,7 +254,8 @@ class Activity(DbObject):
     location = models.ForeignKey(Location)
     
     yelp_dependencies = ["rating", "review_count", "phone", 
-                         "display_phone", "categories", "location"]
+                         "display_phone", "categories", "location",
+                         "name"]
     
     def __unicode__(self):
         ret_str = "[" + str(self.id) + "] " + self.name
@@ -336,7 +347,7 @@ class Activity(DbObject):
     @staticmethod
     def yelp_get_or_create(yelp_business):
         activity = Activity.yelp_get(yelp_business)
-        if not activity:
+        if activity is None:
             activity = Activity.yelp_create(yelp_business)
             
         return activity
@@ -398,14 +409,14 @@ class Trip(DbObject):
         return print_str 
 
 
-class Day(models.Model):
+class Day(ImmutableObject):
     date = models.DateField(blank=True, null=True)
     order = models.IntegerField()
     trip = models.ForeignKey(Trip)
     comments = models.TextField(max_length="1024", blank=True)
     
     
-class TimeInterval(models.Model):
+class TimeInterval(ImmutableObject):
     start_time = models.TimeField(blank=True, null=True, default=None)
     end_time = models.TimeField(blank=True, null=True, default=None)
     activity = models.ForeignKey('TripActivity')
