@@ -8,6 +8,7 @@ import sys
 from operator import attrgetter
 from decimal import Decimal
 import copy
+from django.db.utils import IntegrityError
 
 class TravelAppException(Exception):
     """ An exception for a travel app """
@@ -130,6 +131,27 @@ class TravelApp:
         
         print "You have successfully saved the trip " + str(trip)
         
+    def create_category(self, name, search_name=None, parent=None):
+        category = models.Category(name=name)
+        
+        if search_name is None:
+            category.search_name = name
+        else:
+            category.search_name = search_name
+        
+        if parent is not None:
+            try:
+                parent = models.Category.objects.get(search_name=parent)
+            except models.Category.DoesNotExist:
+                raise TravelAppException("The parent category " + parent + " does not exist.")
+            
+            category.parent = parent
+        
+        try:
+            category.save()
+        except IntegrityError:
+            raise TravelAppException("The category already exists.")
+        
     def create_activity(self, name, country_code, public=False):
         activity = models.Activity(name=name)
 
@@ -209,6 +231,31 @@ class TravelApp:
         
         print "You have successfully saved the trip " + str(trip)
 
+    def edit_category(self, name, new_name=None, search_name=None, parent=None):
+        try:
+            category = models.Category.objects.get(search_name=name)
+        except models.Category.DoesNotExist:
+            raise TravelAppException("The category " + name + " does not exist.")
+            
+        if new_name is not None:
+            category.name = new_name
+
+        if search_name is not None:
+            category.search_name = search_name
+        
+        if parent is not None:
+            try:
+                parent = models.Category.objects.get(search_name=parent)
+            except models.Category.DoesNotExist:
+                raise TravelAppException("The parent category " + parent + " does not exist.")
+            
+            category.parent = parent
+        
+        try:
+            category.save()
+        except IntegrityError:
+            raise TravelAppException("A category with that search name already exists.")
+
     def edit_global_activity_location(self,
                                       activity_id,
                                       country_code = None,
@@ -281,7 +328,8 @@ class TravelApp:
 
     def edit_global_activity(self, activity_id, rating = None, 
                              review_count = None, phone = None, 
-                             description = None, name=None):
+                             description = None, name=None,
+                             categories = None):
         try:
             activity_id = int(activity_id)
         except:
@@ -320,6 +368,18 @@ class TravelApp:
             
             if description is not None:
                 activity.description = description
+                
+            if categories is not None:
+                activity.categories.clear()
+                for category in categories:
+                    try:
+                        category = models.Category.objects.get(search_name = category)
+                    except models.Category.DoesNotExist:
+                        raise TravelAppException("The category " + category + 
+                                                 " does not yet exist. To "
+                                                 "create it, use \"create "
+                                                 "category\" command.")
+                    activity.categories.add(category)
         except models.TravelAppDatabaseException as e:
             raise TravelAppException(str(e))
             
@@ -913,6 +973,45 @@ class TravelAppCmdLine(cmd.Cmd):
         except TravelAppException as e:
             print str(e)
 
+    def create_category(self, line):
+        error_string = "Usage error: create category <name> [-s <search_name> -p <parent search_name>]"
+        line_split = line.split(" ")
+        
+        if len(line_split) < 1:
+            print error_string
+            return
+        
+        index = self.find_next_tag(line_split)
+        if index == 0:
+            print error_string
+            return
+        
+        parent = None
+        search_name = None
+        
+        name = " ".join(line_split[0:index])
+        line_split = line_split[index:]
+        
+        while(len(line_split) > 0):
+            index = self.find_next_tag(line_split[1:])
+            if index:
+                index += 1
+            else:
+                index = len(line_split)
+                
+            if line_split[0] == "-s":
+                search_name = " ".join(line_split[1:index])
+            elif line_split[0] == "-p":
+                parent = " ".join(line_split[1:index])
+                                
+            line_split = line_split[index:]
+
+        try:
+            self.travel_app.create_category(name, search_name, parent)
+        except TravelAppException as e:
+            print str(e)
+        
+
     def create_activity(self, line):
         error_string = "Usage error: create activity <name>"
         line_split = line.split(" ")
@@ -983,12 +1082,14 @@ class TravelAppCmdLine(cmd.Cmd):
             if line_split[0] == "-d":
                 print "in date"
                 start_date = line_split[1]
-            if line_split[0] == "-l":
+            elif line_split[0] == "-l":
                 print "in length"
                 length = line_split[1]
-            if line_split[0] == "-n":
+            elif line_split[0] == "-n":
                 print "in name"
                 new_name = line_split[1]
+            else:
+                print error_string
                 
             print index
             print line_split
@@ -999,6 +1100,50 @@ class TravelAppCmdLine(cmd.Cmd):
             self.travel_app.edit_trip(name=name, start_date=start_date, duration=length, new_name=new_name)
         except TravelAppException as e:
             print str(e)
+
+    def edit_category(self, line):
+        error_string = "Usage error: edit category <name> [-n <new_name>] [-s <search_name> -p <parent search_name>]"
+        line_split = line.split(" ")
+        
+        if len(line_split) < 1:
+            print error_string
+            return
+        
+        index = self.find_next_tag(line_split)
+        if index == 0:
+            print error_string
+            return
+        
+        parent = None
+        search_name = None
+        new_name = None
+        
+        name = " ".join(line_split[0:index])
+        line_split = line_split[index:]
+        
+        while(len(line_split) > 0):
+            index = self.find_next_tag(line_split[1:])
+            if index:
+                index += 1
+            else:
+                index = len(line_split)
+                
+            if line_split[0] == "-s":
+                search_name = " ".join(line_split[1:index])
+            elif line_split[0] == "-p":
+                parent = " ".join(line_split[1:index])
+            elif line_split[0] == "-n":
+                new_name = " ".join(line_split[1:index])
+                
+                                
+            line_split = line_split[index:]
+
+        try:
+            self.travel_app.edit_category(name, new_name, search_name, parent)
+        except TravelAppException as e:
+            print str(e)
+        
+
         
     def edit_activity(self, line):
         """
@@ -1086,7 +1231,7 @@ class TravelAppCmdLine(cmd.Cmd):
         error_string = ("Usage error: edit global_activity <id> "
                         "[location <location info>] "
                         "[categories <categories info>] "
-                        "[-r <rating>] [-c <review count>] [-d <description>] "
+                        "[-r <rating>] [-w <review count>] [-d <description>] "
                         "[-n <name>]")
         line_split = line.split(" ")
         
@@ -1114,6 +1259,7 @@ class TravelAppCmdLine(cmd.Cmd):
         phone = None
         description = None
         name = None
+        categories = None
         
         while(len(line_split) > 0):
             index = self.find_next_tag(line_split[1:])
@@ -1124,7 +1270,7 @@ class TravelAppCmdLine(cmd.Cmd):
                 
             if line_split[0] == "-r":  # rating
                 rating = line_split[1]
-            elif line_split[0] == "-c":  # review count
+            elif line_split[0] == "-w":  # review count
                 review_count = line_split[1]
             elif line_split[0] == "-p":  # phone
                 phone = " ".join(line_split[1:index])
@@ -1132,13 +1278,24 @@ class TravelAppCmdLine(cmd.Cmd):
                 description = " ".join(line_split[1:index])
             elif line_split[0] == "-n": #name
                 name = " ".join(line_split[1:index])
+            elif line_split[0] == "-c": #categories
+                categories = " ".join(line_split[1:index]).split(",")
+                new_categories = []
+                    
+                for category in categories:
+                    new_categories.append(category.strip())
+                
+                categories = new_categories
             else:
                 print error_string
                 
             line_split = line_split[index:]
             
         try:
-            self.travel_app.edit_global_activity(activity_id, rating, review_count, phone, description, name)
+            self.travel_app.edit_global_activity(activity_id, rating, 
+                                                 review_count, phone, 
+                                                 description, name,
+                                                 categories)
         except TravelAppException as e:
             print str(e)
 
@@ -1294,6 +1451,8 @@ class TravelAppCmdLine(cmd.Cmd):
             self.create_trip(line)
         elif first_item == "activity":
             self.create_activity(line)
+        elif first_item == "category":
+            self.create_category(line)
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
 
@@ -1306,10 +1465,12 @@ class TravelAppCmdLine(cmd.Cmd):
         first_item = line_split[0]
         if first_item == "trip":
             self.edit_trip(line)
-        if first_item == "activity":
+        elif first_item == "activity":
             self.edit_activity(line)
-        if first_item == "global_activity":
+        elif first_item == "global_activity":
             self.edit_global_activity(line)
+        elif first_item == "category":
+            self.edit_category(line)
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
             

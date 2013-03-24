@@ -65,7 +65,7 @@ class Coordinate(ImmutableObject):
 
 class Category(ImmutableObject):
     name = models.CharField(max_length=128)
-    search_name = models.CharField(max_length=128)
+    search_name = models.CharField(max_length=128, unique=True)
     parent = models.ForeignKey('self', blank=True, null=True, default=None)
     
     @staticmethod
