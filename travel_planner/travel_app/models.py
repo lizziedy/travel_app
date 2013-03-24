@@ -25,7 +25,7 @@ class ImmutableObject(models.Model):
 class DbObject(ImmutableObject):
     updated_on = models.DateTimeField(auto_now=True)
     created_on = models.DateTimeField(auto_now_add=True)
-    name = models.CharField(max_length=200)
+    name = models.CharField(max_length=256)
     
     class Meta:
         abstract = True
@@ -364,11 +364,15 @@ class Tag(DbObject):
     user = models.ForeignKey(User)
 
 """
-class ActivityHours(models.Model):
+class ActivitySeason(ImmutableObject):
     activity = models.ForeignKey(Activity)
+    name = models.CharField(max_length=256)
     season_start = models.DateField(blank=True, null=True, default=None)
     season_end = models.DateField(blank=True, null=True, default=None)
-    day_of_week = models.IntegerField()
+
+class ActivityHours(models.Model):
+    season = models.ForeignKey(ActivitySeason)
+    day_of_week = models.IntegerField() #monday 0, sunday 6
     
 class ActivityHoursTimeInterval(models.Model):
     start_time = models.TimeField()

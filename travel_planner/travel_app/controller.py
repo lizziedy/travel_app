@@ -495,25 +495,54 @@ class TravelApp:
     def delete_activity(self, identifier):
         self.delete_generic(identifier, models.TripActivity)
         
-    def add_activity(self, index):
+    def add_global_activity(self, ids):
+        if not self.current_user:
+            raise TravelAppException("You must be logged in and in a trip to add an activity. Please login.")
+        if not self.current_trip:
+            raise TravelAppException("You must be in a trip to add an activity. Please goto a trip.")
+        
+        try:
+            for i in range(len(ids)):
+                id_ = ids[i]
+                id_ = int(id_)
+                ids[i] = id_
+                try:
+                    activity = models.Activity.objects.get(id=id_)
+                except models.Activity.DoesNotExist:
+                    raise TravelAppException("The activity with id " + str(id_) + " does not exist.")
+                if activity.activitysource.user is not None and activity.activitysource.user != self.current_user:
+                    raise TravelAppException("You are not permitted to add this activity.")
+                db_trip_activity = models.TripActivity.get_or_create(activity=activity, 
+                                                                     trip=self.current_trip)
+        
+                print "You have successfully added activity " + str(db_trip_activity) + " to trip " + str(self.current_trip)
+        except ValueError:
+            raise TravelAppException("The index must be an integer value")
+        
+        
+    def add_search_activity(self, indices):
         if not self.current_user:
             raise TravelAppException("You must be logged in and in a trip to add an activity. Please login.")
         if not self.current_trip:
             raise TravelAppException("You must be in a trip to add an activity. Please goto a trip.")
         if self.current_search is None or len(self.current_search) == 0:
             raise TravelAppException("Try another search. There are no activities in the cache.")
-        try:
-            index = int(index)
-        except:
-            raise TravelAppException("The index must be an integer value")
-        if index >= len(self.current_search):
-            raise TravelAppException("The index you have used is out of range")
-        activity = self.current_search[index]
-        db_activity = models.Activity.yelp_get_or_create(activity)
-        db_trip_activity = models.TripActivity.get_or_create(activity=db_activity, 
-                                                             trip=self.current_trip)
         
-        print "You have successfully added activity " + str(db_trip_activity) + " to trip " + str(self.current_trip)
+        try:
+            for i in range(len(indices)):
+                index = indices[i]
+                index = int(index)
+                if index >= len(self.current_search):
+                    raise TravelAppException("The index you have used is out of range")
+                indices[i] = index
+                activity = self.current_search[index]
+                db_activity = models.Activity.yelp_get_or_create(activity)
+                db_trip_activity = models.TripActivity.get_or_create(activity=db_activity, 
+                                                                     trip=self.current_trip)
+        
+                print "You have successfully added activity " + str(db_trip_activity) + " to trip " + str(self.current_trip)
+        except ValueError:
+            raise TravelAppException("The index must be an integer value")
         
     def tag_activity(self, activity_id, tagname_or_id, force = False):
         tag = None
@@ -1300,16 +1329,35 @@ class TravelAppCmdLine(cmd.Cmd):
             print str(e)
 
     
-    def add_activity(self, line):
-        index = -1
+    def add_global_activity(self, line):
+        ids = []
         try:
-            index = int(line)
+            ids = line.split(",")
+            for i in range(len(ids)):
+                id_ = int(ids[i].strip())
+                ids[i] = id_
+        except:
+            print "The argument should be the id of the activity"
+            return
+        
+        try:
+            self.travel_app.add_global_activity(ids)
+        except TravelAppException as e:
+            print str(e)
+
+    def add_search_activity(self, line):
+        indices = []
+        try:
+            indices = line.split(",")
+            for i in range(len(indices)):
+                index = int(indices[i].strip())
+                indices[i] = index
         except:
             print "The argument to add activity should be the index of the activity"
             return
         
         try:
-            self.travel_app.add_activity(index)
+            self.travel_app.add_search_activity(indices)
         except TravelAppException as e:
             print str(e)
 
@@ -1501,19 +1549,18 @@ class TravelAppCmdLine(cmd.Cmd):
             print "You are not logged in"
     
     def do_add(self, line):
-        self.add_activity(line)
-        """ only have one command for now, so going straight there 
         line_split = line.split(" ")
         if len(line_split) < 1 or len(line_split[0]) == 0:
             print "Error: must include at least one argument"
         
         line = " ".join(line_split[1:])
         first_item = line_split[0]
-        if first_item == "activity":
-            self.add_activity(line)
+        if first_item == "-s":
+            self.add_search_activity(line)
+        elif first_item == "-a":
+            self.add_global_activity(line)
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
-        """
         
     def do_tag(self, line):
         """ -f: force """
