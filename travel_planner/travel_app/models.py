@@ -291,6 +291,37 @@ class Activity(DbObject):
 
         return True
     
+    def rating_str(self):
+        rating = ""
+        for _ in range(int(self.rating)):
+            rating += "*"
+        if int(self.rating) < self.rating:
+            rating += "."
+
+        return rating
+    
+    def details(self):
+        det_str = ""
+        
+        det_str += self.name
+        if self.rating is not None:
+            det_str += " " + self.rating_str() + " (" + str(self.review_count) + ")"
+        det_str += "\n"
+        det_str += "phone: "
+        if self.display_phone is not None:
+            det_str += self.display_phone
+        elif self.phone is not None:
+            det_str += self.phone
+        det_str += "\n"
+        det_str += "categories: "
+        # TODO:
+        det_str += "\n"
+        det_str += "description:\n" + self.description + "\n"
+        det_str += "location: "
+        # TODO:
+        
+        return det_str
+    
     @staticmethod
     def yelp_create(yelp_business):
         if Activity.yelp_get(yelp_business) is not None:
@@ -448,15 +479,32 @@ class TripActivity(DbObject):
     def __unicode__(self):
         ret_str = ""
         if self.priority != sys.maxint:
-            ret_str += "(" + str(self.priority) + ")"
-        ret_str += " [" + str(self.id) + "] " + self.name
+            ret_str += "(" + str(self.priority) + ") "
+        ret_str += "[" + str(self.id) + "] " + self.name
+        tag_str = self.tag_list_str()
+        if len(tag_str) > 0:
+            ret_str += " (" + tag_str + ")"
+        return ret_str
+    
+    def tag_list_str(self):
+        ret_str = ""
         if len(self.tags.all()) > 0:
-            ret_str += " ("
             for tag in self.tags.all():
                 ret_str += tag.name + ", "
             ret_str = ret_str[:-2]
-            ret_str += ")"
         return ret_str
+    
+    def details(self):
+        det_str = ""
+        
+        det_str += self.name + "\n"
+        det_str += "priority: " + str(self.priority) + "\n"
+        det_str += "tags: " + self.tag_list_str() + "\n"
+        det_str += "comments: " + self.comments + "\n"
+        det_str += "\nactivity:\n"
+        det_str += self.activity.details()
+        
+        return det_str
     
     class Meta:
         ordering = ["priority", "name"]

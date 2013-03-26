@@ -424,7 +424,7 @@ class TravelApp:
         try:
             db_activity = models.TripActivity.objects.get(id = identifier, trip=self.current_trip) 
         except models.TripActivity.DoesNotExist:
-            raise TravelAppException("The activity with id " + str(identifier) + " does not exist in trip " + self.current_trip)
+            raise TravelAppException("The activity with id " + str(identifier) + " does not exist in trip " + str(self.current_trip))
         
         return db_activity
    
@@ -494,7 +494,7 @@ class TravelApp:
         
     def delete_activity(self, identifier):
         self.delete_generic(identifier, models.TripActivity)
-        
+    
     def add_global_activity(self, ids):
         if not self.current_user:
             raise TravelAppException("You must be logged in and in a trip to add an activity. Please login.")
@@ -543,7 +543,7 @@ class TravelApp:
                 print "You have successfully added activity " + str(db_trip_activity) + " to trip " + str(self.current_trip)
         except ValueError:
             raise TravelAppException("The index must be an integer value")
-        
+     
     def tag_activity(self, activity_id, tagname_or_id, force = False):
         tag = None
         activity = -1
@@ -592,6 +592,19 @@ class TravelApp:
         if activity > -1 and tag is not None:
             activity.tags.remove(tag)
             activity.save()
+    
+    def comment_activity(self, activity_id, comment, append=False):
+        if not self.current_user:
+            raise TravelAppException("You must be logged in and in a trip to get activities. Please login.")
+        if not self.current_trip:
+            raise TravelAppException("You must be in a trip to get activities. Please goto a trip.")
+        
+        activity = self.get_activity(activity_id)
+        if append:
+            activity.comments += comment
+        else:
+            activity.comments = comment
+        activity.save()
     
     def order(self, activity_ids):
         if self.current_activities is None:
@@ -890,6 +903,59 @@ class TravelAppCmdLine(cmd.Cmd):
             print "-----------------"
             for day in days:
                 self.print_day(day)
+        except TravelAppException as e:
+            print str(e)
+            
+    def details_activity(self, line):
+        try:
+            activity_id = int(line)
+        except:
+            print "This activity id must be an integer"
+            return
+        
+        try:
+            activity = self.travel_app.get_activity(activity_id)
+        except TravelAppException as e:
+            print str(e)
+            
+        print ""
+        print activity.details()
+            
+    def comment_activity(self, line):
+        error_str = "Usage error: comment activity <activity_id> -c <comments> [-a]"
+        line_split = line.split(" ")
+        
+        if len(line_split) < 3:
+            print error_str
+        try:
+            activity_id = int(line_split[0])
+            line_split = line_split[1:]
+        except:
+            print "This activity id must be an integer"
+            return
+        
+        comment = ""
+        append = False
+        
+        while(len(line_split) > 0):
+            index = self.find_next_tag(line_split[1:])
+            if index:
+                index += 1
+            else:
+                index = len(line_split)
+            if line_split[0] == "-c":
+                comment = " ".join(line_split[1:index])
+            elif line_split[0] == "-a":
+                append = True
+            else:
+                print error_str
+                return
+            
+            line_split=line_split[index:]
+
+        
+        try:
+            self.travel_app.comment_activity(activity_id, comment, append)
         except TravelAppException as e:
             print str(e)
             
@@ -1380,6 +1446,19 @@ class TravelAppCmdLine(cmd.Cmd):
         except TravelAppException as e:
             print str(e)
     
+    def do_details(self, line):
+        line_split = line.split(" ")
+        if len(line_split) < 1 or len(line_split[0]) == 0:
+            print "Error: must include at least one argument"
+        
+        line = " ".join(line_split[1:])
+        first_item = line_split[0]
+        
+        if first_item == "activity":
+            self.details_activity(line)
+        else:
+            print "Error: that command does not exist. Type 'help' for a listing of commands."
+    
     def do_list(self, line):
         line_split = line.split(" ")
         if len(line_split) < 1 or len(line_split[0]) == 0:
@@ -1402,6 +1481,18 @@ class TravelAppCmdLine(cmd.Cmd):
         else:
             print "Error: that command does not exist. Type 'help' for a listing of commands."
     
+    def do_comment(self, line):
+        line_split = line.split(" ")
+        if len(line_split) < 1 or len(line_split[0]) == 0:
+            print "Error: must include at least one argument"
+        
+        line = " ".join(line_split[1:])
+        first_item = line_split[0]
+        if first_item == "activity":
+            self.comment_activity(line)
+        else:
+            print "Error: that command does not exist. Type 'help' for a listing of commands."
+            
     def do_delete(self, line):    
         line_split = line.split(" ")
         if len(line_split) < 1 or len(line_split[0]) == 0:
